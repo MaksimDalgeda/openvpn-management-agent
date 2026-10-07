@@ -10,16 +10,27 @@ local function make_ubus_objects(conn)
     local objects = {}
 
     for _, srv in ipairs(servers.get_servers()) do
+
         objects["openvpn." .. srv.name] = {
+
             list = {
-                function(req, msg)
-                    local lines, err = management.status(srv.ip, srv.port)
+                function(req)
+                    local lines, err =
+                        management.status(
+                            srv.management_ip,
+                            srv.management_port
+                        )
 
                     if not lines then
                         logger.log_error(
-                            "Failed to get status from " .. srv.name .. ": " .. tostring(err)
+                            "Failed to get status from " ..
+                            srv.name .. ": " .. tostring(err)
                         )
-                        return conn:reply(req, { success = false, error = err })
+
+                        return conn:reply(req, {
+                            success = false,
+                            error = err
+                        })
                     end
 
                     local clients = parser.clients(lines)
@@ -34,7 +45,12 @@ local function make_ubus_objects(conn)
 
             disconnect = {
                 function(req, msg)
-                    local lines, err = management.status(srv.ip, srv.port)
+
+                    local lines, err =
+                        management.status(
+                            srv.management_ip,
+                            srv.management_port
+                        )
 
                     if not lines then
                         return conn:reply(req, {
@@ -61,7 +77,11 @@ local function make_ubus_objects(conn)
                     end
 
                     local response, err =
-                        management.disconnect(srv.ip, srv.port, cid)
+                        management.disconnect(
+                            srv.management_ip,
+                            srv.management_port,
+                            cid
+                        )
 
                     local ok = response ~= nil
 
@@ -70,7 +90,9 @@ local function make_ubus_objects(conn)
                         error = err
                     })
                 end,
-                { ip_addr = ubus.STRING }
+                {
+                    ip_addr = ubus.STRING
+                }
             }
         }
     end
