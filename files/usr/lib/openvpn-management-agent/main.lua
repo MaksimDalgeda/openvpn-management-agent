@@ -1,7 +1,20 @@
-package.path ="/usr/lib/openvpn-management-agent/?.lua;" .. package.path
+package.path = "/usr/lib/openvpn-management-agent/?.lua;" ..
+    package.path
 
-local management = require("management")
+local ubus = require("ubus")
+local uloop = require("uloop")
+local api = require("ubus_api")
 
-print("OpenVPN Management Agent started")
+uloop.init()
 
-management.test()
+local conn = ubus.connect()
+
+if not conn then
+    error("Failed to connect to ubus")
+end
+
+conn:add(api.create_objects(conn))
+
+uloop.run()
+
+conn:close()
