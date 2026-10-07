@@ -6,38 +6,59 @@ local logger = require("logger")
 
 local M = {}
 
+local function get_clients(srv)
+    local lines, err = management.status(
+        srv.management_ip,
+        srv.management_port
+    )
+
+    if not lines then
+        logger.log_error(
+            "Failed to get status from " ..
+            srv.name .. ": " .. tostring(err)
+        )
+
+        return nil, err
+    end
+
+    return parser.clients(lines)
+end
+
 local function make_ubus_objects(conn)
     local objects = {}
 
     for _, srv in ipairs(servers.get_servers()) do
+        local server = srv
 
-        objects["openvpn." .. srv.name] = {
+        objects["openvpn." .. server.name] = {
 
             list = {
                 function(req)
-                    local lines, err =
-                        management.status(
-                            srv.management_ip,
-                            srv.management_port
-                        )
+                    local clients, err = get_clients(server)
 
-                    if not lines then
-                        logger.log_error(
-                            "Failed to get status from " ..
-                            srv.name .. ": " .. tostring(err)
-                        )
-
+                    if not clients then
                         return conn:reply(req, {
                             success = false,
                             error = err
                         })
                     end
 
-                    local clients = parser.clients(lines)
+                    local result = {}
+
+                    for _, client in ipairs(clients) do
+                        table.insert(result, {
+                            ip_addr = client.ip_addr,
+                            common_name = client.common_name,
+                            virtual_address = client.virtual_address,
+                            bytes_received = client.bytes_received,
+                            bytes_sent = client.bytes_sent,
+                            connected_since = client.connected_since
+                        })
+                    end
 
                     conn:reply(req, {
-                        name = srv.name,
-                        clients = clients
+                        name = server.name,
+                        clients = result
                     })
                 end,
                 {}
@@ -45,25 +66,19 @@ local function make_ubus_objects(conn)
 
             disconnect = {
                 function(req, msg)
+                    local clients, err = get_clients(server)
 
-                    local lines, err =
-                        management.status(
-                            srv.management_ip,
-                            srv.management_port
-                        )
-
-                    if not lines then
+                    if not clients then
                         return conn:reply(req, {
                             success = false,
                             error = err
                         })
                     end
 
-                    local clients = parser.clients(lines)
                     local cid
 
                     for _, client in ipairs(clients) do
-                        if client.real_address == msg.ip_addr then
+                        if client.ip_addr == msg.ip_addr then
                             cid = client.client_id
                             break
                         end
@@ -76,18 +91,35 @@ local function make_ubus_objects(conn)
                         })
                     end
 
-                    local response, err =
+                    logger.log_info(
+                        "Disconnecting " ..
+                        msg.ip_addr ..
+                        " from " ..
+                        server.name ..
+                        " CID=" ..
+                        tostring(cid)
+                    )
+
+                    local response, disconnect_err =
                         management.disconnect(
-                            srv.management_ip,
-                            srv.management_port,
+                            server.management_ip,
+                            server.management_port,
                             cid
                         )
 
-                    local ok = response ~= nil
+                    local success = response ~= nil
+
+                    if not success then
+                        logger.log_error(
+                            "Failed to disconnect " ..
+                            msg.ip_addr .. ": " ..
+                            tostring(disconnect_err)
+                        )
+                    end
 
                     conn:reply(req, {
-                        success = ok,
-                        error = err
+                        success = success,
+                        error = disconnect_err
                     })
                 end,
                 {
